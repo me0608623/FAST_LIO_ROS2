@@ -11,6 +11,17 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    """
+    FAST-LIO2 Launch 文件 - 專為 Isaac Sim 整合設計
+    
+    TF Tree 結構：
+    camera_init (Map) ──修正──> odom ──輪速計──> base_link
+    
+    說明：
+    - FAST-LIO2 發布：camera_init -> body
+    - Isaac Sim 發布：odom -> base_link
+    - Static Transform Bridge：camera_init -> odom（自動添加）
+    """
     package_path = get_package_share_directory('fast_lio')
     default_config_path = os.path.join(package_path, 'config')
     default_rviz_config_path = os.path.join(
@@ -23,19 +34,19 @@ def generate_launch_description():
     rviz_cfg = LaunchConfiguration('rviz_cfg')
 
     declare_use_sim_time_cmd = DeclareLaunchArgument(
-        'use_sim_time', default_value='false',
-        description='Use simulation (Gazebo) clock if true'
+        'use_sim_time', default_value='true',  # 默認使用模擬時間
+        description='Use simulation (Isaac Sim) clock if true'
     )
     declare_config_path_cmd = DeclareLaunchArgument(
         'config_path', default_value=default_config_path,
         description='Yaml config file path'
     )
     declare_config_file_cmd = DeclareLaunchArgument(
-        'config_file', default_value='mid360.yaml',
+        'config_file', default_value='velodyne.yaml',  # 默認使用 Velodyne 配置
         description='Config file'
     )
     declare_rviz_cmd = DeclareLaunchArgument(
-        'rviz', default_value='true',
+        'rviz', default_value='false',  # 默認不啟動 RViz（可選）
         description='Use RViz to monitor results'
     )
     declare_rviz_config_path_cmd = DeclareLaunchArgument(
@@ -43,13 +54,7 @@ def generate_launch_description():
         description='RViz config file path'
     )
 
-    # 添加參數：是否發布 camera_init -> odom 的 static transform（用於與 Isaac Sim 整合）
-    enable_tf_bridge = LaunchConfiguration('enable_tf_bridge')
-    declare_tf_bridge_cmd = DeclareLaunchArgument(
-        'enable_tf_bridge', default_value='false',
-        description='Enable TF bridge: camera_init -> odom (for Isaac Sim integration)'
-    )
-
+    # FAST-LIO2 節點
     fast_lio_node = Node(
         package='fast_lio',
         executable='fastlio_mapping',
@@ -61,12 +66,12 @@ def generate_launch_description():
     # Static Transform Publisher: camera_init -> odom
     # 這將 FAST-LIO2 的地圖原點 (camera_init) 連接到 Isaac Sim 的里程計原點 (odom)
     # 格式: x y z yaw pitch roll parent_frame child_frame
+    # 初始時兩個原點重合，後續可以根據 SLAM 結果調整這個 transform
     tf_bridge_node = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='camera_init_to_odom_bridge',
         arguments=['0', '0', '0', '0', '0', '0', 'camera_init', 'odom'],
-        condition=IfCondition(enable_tf_bridge),
         output='screen'
     )
     
@@ -83,10 +88,10 @@ def generate_launch_description():
     ld.add_action(declare_config_file_cmd)
     ld.add_action(declare_rviz_cmd)
     ld.add_action(declare_rviz_config_path_cmd)
-    ld.add_action(declare_tf_bridge_cmd)
 
     ld.add_action(fast_lio_node)
-    ld.add_action(tf_bridge_node)
+    ld.add_action(tf_bridge_node)  # 自動添加 TF bridge
     ld.add_action(rviz_node)
 
     return ld
+

@@ -59,7 +59,14 @@ find_package(std_srvs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
-find_package(livox_ros_driver2 REQUIRED)
+# livox_ros_driver2 設為可選（如果使用 Velodyne 或其他 LiDAR 可能不需要）
+find_package(livox_ros_driver2 QUIET)
+if(livox_ros_driver2_FOUND)
+  message(STATUS "Found livox_ros_driver2 - Livox support enabled")
+  add_definitions(-DLIVOX_SUPPORT)
+else()
+  message(WARNING "livox_ros_driver2 not found - Livox support disabled. If using Velodyne/Ouster, this is OK.")
+endif()
 find_package(rosidl_default_generators REQUIRED)
 
 set(dependencies
@@ -73,8 +80,12 @@ set(dependencies
   visualization_msgs
   pcl_ros
   pcl_conversions
-  livox_ros_driver2
 )
+
+# 只在找到 livox_ros_driver2 時添加依賴
+if(livox_ros_driver2_FOUND)
+  list(APPEND dependencies livox_ros_driver2)
+endif()
 
 # Thirdparty libraries
 find_package(Eigen3 REQUIRED)

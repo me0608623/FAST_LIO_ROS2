@@ -11,7 +11,7 @@
 
         common:
             lid_topic:  "/velodyne_points"
-            imu_topic:  "/imu/data"
+            imu_topic:  "/imu"
             time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
             time_offset_lidar_to_imu: 0.0 # Time offset between lidar and IMU calibrated by other algorithms, e.g. LI-Init (can be found in README).
                                         # This param will take effect no matter what time_sync_en is. So if the time offset is not known exactly, please set as 0.0
@@ -38,6 +38,8 @@
 
         publish:
             path_en:  false
+            effect_map_en: false         # true: publish Effects cloud
+            map_en: true                 # true: publish Map cloud to /Laser_map topic (強制開啟地圖發布)
             scan_publish_en:  true       # false: close all the point cloud output
             dense_publish_en: true       # false: low down the points number in a global-frame point clouds scan.
             scan_bodyframe_pub_en: true  # true: output the point cloud scans in IMU-body-frame
