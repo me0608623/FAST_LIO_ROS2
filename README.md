@@ -194,6 +194,325 @@ The main structure of this UAV is 3d printed (Aluminum or PLA), the .stl file wi
     <img src="doc/uav_system.png" width=57% >
 </div>
 
-## 6.Acknowledgments
+## 6. Isaac Sim 整合使用指南
+
+### 6.1 Topic 設定說明
+
+FAST-LIO2 需要訂閱以下 ROS2 topics：
+
+#### 輸入 Topics（必須）
+
+| Topic 名稱 | 訊息類型 | 說明 | 預設值 |
+|-----------|---------|------|--------|
+| `/velodyne_points` | `sensor_msgs/PointCloud2` | 雷達點雲數據 | 在 `config/velodyne.yaml` 中設定 |
+| `/imu` | `sensor_msgs/Imu` | IMU 慣性測量數據 | 在 `config/velodyne.yaml` 中設定 |
+
+#### 輸出 Topics
+
+| Topic 名稱 | 訊息類型 | 說明 |
+|-----------|---------|------|
+| `/Laser_map` | `sensor_msgs/PointCloud2` | 全局地圖點雲（frame_id: `camera_init`） |
+| `/cloud_registered` | `sensor_msgs/PointCloud2` | 註冊後的點雲（frame_id: `camera_init`） |
+| `/cloud_registered_body` | `sensor_msgs/PointCloud2` | 機體坐標系點雲（frame_id: `body`） |
+| `/Odometry` | `nav_msgs/Odometry` | 優化後的里程計（frame: `camera_init -> body`） |
+
+#### Topic 設定方式
+
+在配置檔案中設定（例如 `config/velodyne.yaml`）：
+
+```yaml
+common:
+    lid_topic:  "/velodyne_points"  # 雷達點雲 topic
+    imu_topic:  "/imu"              # IMU topic
+```
+
+**重要提醒：**
+- 確保 Isaac Sim 發布的 topic 名稱與配置檔案中的設定一致
+- 如果 Isaac Sim 使用不同的 topic 名稱，請修改配置檔案或使用 ROS2 的 `topic_tools` 進行重映射
+
+### 6.2 使用方式
+
+#### 方式 A：使用 Isaac Sim 專用 Launch 文件（推薦）
+
+```bash
+cd ~/IsaacSim-ros_workspaces/jazzy_ws
+source install/setup.bash
+
+# 啟動 FAST-LIO2（自動配置 Isaac Sim 整合）
+ros2 launch fast_lio mapping_isaac_sim.launch.py config_file:=velodyne.yaml
+```
+
+**此方式會自動：**
+- ✅ 設置 `use_sim_time:=true`（使用模擬時間）
+- ✅ 發布 `camera_init -> odom` 的 static transform（TF bridge）
+- ✅ 使用指定的配置檔案（`velodyne.yaml`）
+
+#### 方式 B：使用標準 Launch 文件
+
+```bash
+cd ~/IsaacSim-ros_workspaces/jazzy_ws
+source install/setup.bash
+
+# 啟動 FAST-LIO2（需手動指定參數）
+ros2 launch fast_lio mapping.launch.py \
+    config_file:=velodyne.yaml \
+    use_sim_time:=true \
+    enable_tf_bridge:=true
+```
+
+#### 方式 C：手動啟動 TF Bridge
+
+如果需要手動控制 TF bridge：
+
+```bash
+# 終端 1: 啟動 FAST-LIO2
+ros2 launch fast_lio mapping.launch.py config_file:=velodyne.yaml use_sim_time:=true
+
+# 終端 2: 啟動 TF Bridge
+bash ~/IsaacSim-ros_workspaces/jazzy_ws/src/FAST_LIO_ROS2/scripts/tf_bridge_isaac_sim.sh
+
+# 或直接使用命令
+ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 camera_init odom
+```
+
+### 6.3 TF Tree 結構
+
+FAST-LIO2 與 Isaac Sim 整合後的 TF Tree：
+
+```
+camera_init (Map) ──修正──> odom ──輪速計──> base_link
+```
+
+**說明：**
+- `camera_init`: FAST-LIO2 的地圖原點（SLAM 計算的全局坐標系）
+- `odom`: Isaac Sim 的里程計原點（模擬器的里程計坐標系）
+- `base_link`: 機器人本體坐標系（Isaac Sim 發布）
+
+**FAST-LIO2 發布的 TF：**
+- `camera_init -> body`（SLAM 計算的位姿）
+
+**驗證 TF Tree：**
+
+```bash
+# 查看完整的 TF Tree
+ros2 run tf2_tools view_frames
+
+# 檢查特定 transform
+ros2 run tf2_ros tf2_echo camera_init odom
+ros2 run tf2_ros tf2_echo odom base_link
+ros2 run tf2_ros tf2_echo camera_init base_link  # 應該能成功（通過 odom）
+
+# 查看所有 TF frames
+ros2 run tf2_ros tf2_monitor
+```
+
+### 6.4 監控數據方式
+
+#### 方式 A：使用監控腳本（推薦）
+
+我們提供了一個專門的監控腳本，可以實時檢查 FAST-LIO2 的運行狀態：
+
+```bash
+cd ~/IsaacSim-ros_workspaces/jazzy_ws
+source install/setup.bash
+
+# 啟動監控腳本
+ros2 run fast_lio monitor_fastlio2.py
+```
+
+**監控腳本會檢查：**
+
+1. **里程計輸出狀態**
+   - 是否有 `/odom` 數據輸出
+   - 發布頻率
+   - 位置變化情況
+   - 時間戳信息
+
+2. **IMU 數據狀態**
+   - IMU 數據是否正常接收
+   - 加速度是否為零（異常情況）
+   - 是否檢測到重力（驗證 IMU 數據有效性）
+   - 發布頻率
+
+3. **時間同步狀態**
+   - 是否使用 Sim Time（檢查 `/clock` topic）
+   - 模擬時間與系統時間的同步情況
+
+**自定義監控參數：**
+
+```bash
+ros2 run fast_lio monitor_fastlio2.py \
+    --ros-args \
+    -p odom_topic:=/odom \
+    -p imu_topic:=/imu \
+    -p clock_topic:=/clock
+```
+
+#### 方式 B：使用 ROS2 命令行工具
+
+**檢查 Topic 列表：**
+
+```bash
+# 列出所有 topics
+ros2 topic list
+
+# 檢查特定 topic 是否存在
+ros2 topic list | grep -E 'odom|imu|velodyne'
+```
+
+**監聽 Topic 數據：**
+
+```bash
+# 監聽里程計數據
+ros2 topic echo /odom --no-arr
+
+# 監聽 IMU 數據
+ros2 topic echo /imu --no-arr
+
+# 監聽點雲數據（僅顯示訊息頭部）
+ros2 topic echo /velodyne_points --no-arr | head -20
+```
+
+**檢查 Topic 發布頻率：**
+
+```bash
+# 檢查里程計頻率
+ros2 topic hz /odom
+
+# 檢查 IMU 頻率
+ros2 topic hz /imu
+
+# 檢查點雲頻率
+ros2 topic hz /velodyne_points
+```
+
+**查看 Topic 訊息類型：**
+
+```bash
+ros2 topic info /odom
+ros2 topic info /imu
+ros2 topic info /velodyne_points
+```
+
+#### 方式 C：使用 RViz2 可視化
+
+```bash
+# 啟動 FAST-LIO2（帶 RViz）
+ros2 launch fast_lio mapping_isaac_sim.launch.py \
+    config_file:=velodyne.yaml \
+    rviz:=true
+
+# 或單獨啟動 RViz2
+rviz2
+```
+
+**在 RViz2 中設定：**
+- Fixed Frame: `camera_init` 或 `odom`
+- 添加 PointCloud2 顯示，選擇 `/Laser_map` 或 `/cloud_registered`
+- 添加 TF 顯示，查看 TF Tree 結構
+
+### 6.5 常見問題排查
+
+#### 問題 1：里程計沒有輸出
+
+**症狀：** `/odom` topic 沒有數據
+
+**檢查步驟：**
+1. 確認 FAST-LIO2 節點是否正常啟動
+   ```bash
+   ros2 node list | grep fastlio
+   ```
+
+2. 確認是否使用 Sim Time
+   ```bash
+   ros2 param get /fastlio_mapping use_sim_time
+   ```
+   應該返回 `true`
+
+3. 檢查 Isaac Sim 是否發布 `/clock`
+   ```bash
+   ros2 topic echo /clock --no-arr
+   ```
+
+4. 使用監控腳本進行詳細診斷
+   ```bash
+   ros2 run fast_lio monitor_fastlio2.py
+   ```
+
+#### 問題 2：IMU 數據異常
+
+**症狀：** IMU 加速度全為 0 或未檢測到重力
+
+**解決方案：**
+1. 檢查 Isaac Sim 的 IMU Bridge 設定
+   - 確認 ROS2 IMU Bridge 已啟用
+   - 確認使用 Simulation Time
+   - 確認頻率設為 100Hz 以上
+
+2. 檢查 IMU topic 名稱是否正確
+   ```bash
+   ros2 topic echo /imu --no-arr
+   ```
+
+#### 問題 3：時間同步問題
+
+**症狀：** 數據被丟棄，時間戳不匹配
+
+**解決方案：**
+```bash
+# 確保所有節點使用模擬時間
+ros2 param set /fastlio_mapping use_sim_time true
+
+# 重啟 FAST-LIO2，確保加上 use_sim_time 參數
+ros2 launch fast_lio mapping_isaac_sim.launch.py config_file:=velodyne.yaml
+```
+
+#### 問題 4：TF Tree 不完整
+
+**症狀：** `ros2 run tf2_ros tf2_echo camera_init base_link` 失敗
+
+**解決方案：**
+1. 確認 TF bridge 正在運行
+   ```bash
+   ros2 node list | grep camera_init_to_odom_bridge
+   ```
+
+2. 確認 Isaac Sim 正在發布 `odom -> base_link`
+   ```bash
+   ros2 run tf2_ros tf2_echo odom base_link
+   ```
+
+3. 檢查所有節點是否使用相同的 `use_sim_time` 設置
+
+### 6.6 配置檔案說明
+
+主要配置檔案：`config/velodyne.yaml`
+
+**關鍵參數說明：**
+
+```yaml
+common:
+    lid_topic:  "/velodyne_points"      # 雷達點雲 topic（必須與 Isaac Sim 一致）
+    imu_topic:  "/imu"                  # IMU topic（必須與 Isaac Sim 一致）
+    time_sync_en: false                 # 時間同步（通常保持 false）
+
+preprocess:
+    lidar_type: 2                       # 2 = Velodyne LiDAR
+    scan_line: 32                       # 掃描線數
+    scan_rate: 10                        # 掃描頻率（Hz）
+    blind: 2.0                           # 盲區距離（米）
+
+mapping:
+    fov_degree: 360.0                   # 視野角度
+    det_range: 100.0                     # 檢測範圍（米）
+
+publish:
+    map_en: true                         # 發布地圖點雲
+    scan_publish_en: true                # 發布掃描點雲
+```
+
+**詳細配置說明請參考：** `ISAAC_SIM_INTEGRATION.md`
+
+## 7. Acknowledgments
 
 Thanks for LOAM(J. Zhang and S. Singh. LOAM: Lidar Odometry and Mapping in Real-time), [Livox_Mapping](https://github.com/Livox-SDK/livox_mapping), [LINS](https://github.com/ChaoqinRobotics/LINS---LiDAR-inertial-SLAM) and [Loam_Livox](https://github.com/hku-mars/loam_livox).
