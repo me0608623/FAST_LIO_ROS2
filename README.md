@@ -348,6 +348,17 @@ ros2 run fast_lio monitor_fastlio2.py \
     -p clock_topic:=/clock
 ```
 
+**直接使用 Python 運行監控腳本：**
+
+```bash
+# 確保 ROS2 環境已設置
+source /opt/ros/jazzy/setup.bash
+source ~/IsaacSim-ros_workspaces/jazzy_ws/install/setup.bash
+
+# 運行監控腳本
+python3 ~/IsaacSim-ros_workspaces/jazzy_ws/src/FAST_LIO_ROS2/scripts/monitor_fastlio2.py
+```
+
 #### 方式 B：使用 ROS2 命令行工具
 
 **檢查 Topic 列表：**
